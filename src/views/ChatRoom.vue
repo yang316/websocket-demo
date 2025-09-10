@@ -14,9 +14,14 @@
           </span>
         </div>
       </div>
-      <button @click="handleLogout" class="logout-btn">
-        退出登录
-      </button>
+      <div class="header-actions">
+        <router-link to="/profile" class="profile-btn">
+          个人信息
+        </router-link>
+        <button @click="handleLogout" class="logout-btn">
+          退出登录
+        </button>
+      </div>
     </div>
 
     <!-- 聊天消息区域 -->
@@ -67,22 +72,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { useWebSocketStore } from '../stores/websocket'
 
 const router = useRouter()
+const wsStore = useWebSocketStore()
 const messagesContainer = ref(null)
 const newMessage = ref('')
 const sending = ref(false)
 const userInfo = ref(null)
+const currentChat = ref(null)
 
-// WebSocket相关状态
-const ws = ref(null)
-const wsConnected = ref(false)
-const wsConnecting = ref(false)
+// 从WebSocket store获取连接状态
+const wsConnected = computed(() => wsStore.isConnected)
+const wsConnecting = computed(() => wsStore.isConnecting)
 
-// 模拟消息数据
+// 聊天消息
 const messages = ref([
   {
     id: 1,
@@ -90,133 +97,55 @@ const messages = ref([
     text: '欢迎来到聊天室！',
     timestamp: new Date(Date.now() - 60000),
     isOwn: false
-  },
-  {
-    id: 2,
-    sender: '小明',
-    text: '大家好！',
-    timestamp: new Date(Date.now() - 30000),
-    isOwn: false
   }
 ])
 
-// WebSocket连接函数
-const connectWebSocket = () => {
-  if (ws.value && ws.value.readyState === WebSocket.OPEN) {
-    return
+// 监听WebSocket store中的消息变化
+watch(() => wsStore.messages, (newMessages) => {
+  // 这里可以根据currentChat过滤消息
+  // 目前简单实现，实际项目中应该根据聊天对象ID过滤
+  if (newMessages.length > 0) {
+    const latestMessage = newMessages[newMessages.length - 1]
+    messages.value.push(latestMessage)
+    nextTick(() => {
+      scrollToBottom()
+    })
   }
-  
-  wsConnecting.value = true
-  
-  try {
-    // 连接WebSocket服务器
-    ws.value = new WebSocket('ws://127.0.0.1:2345/ws')
-    
-    ws.value.onopen = () => {
-      message.success('WebSocket连接已建立')
-      wsConnected.value = true
-      wsConnecting.value = false
-      
-      // 发送用户信息进行身份验证
-      if (userInfo.value) {
-        ws.value.send(JSON.stringify({
-          type: 'auth',
-          data: {
-            token: localStorage.getItem('token'),
-            user: userInfo.value
-          }
-        }))
-      }
-    }
-    
-    ws.value.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        handleWebSocketMessage(data)
-      } catch (error) {
-        console.error('解析WebSocket消息失败:', error)
-      }
-    }
-    
-    ws.value.onclose = () => {
-      message.warning('WebSocket连接已关闭')
-      wsConnected.value = false
-      wsConnecting.value = false
-      
-      // 尝试重连
-      setTimeout(() => {
-        if (!wsConnected.value) {
-          connectWebSocket()
-        }
-      }, 3000)
-    }
-    
-    ws.value.onerror = (error) => {
-      message.error('WebSocket连接错误:', error)
-      wsConnected.value = false
-      wsConnecting.value = false
-    }
-  } catch (error) {
-    message.error('创建WebSocket连接失败:', error)
-    wsConnecting.value = false
-  }
-}
+}, { deep: true })
 
-// 处理WebSocket消息
-const handleWebSocketMessage = (data) => {
-  switch (data.type) {
-    case 'message':
-      // 接收到新消息
-      const senderName = data.data.sender?.username || data.data.sender || '未知用户'
-      const textMessage = {
-        id: data.data.id || Date.now(),
-        sender: senderName,
-        text: data.data.text || '',
-        timestamp: new Date(data.data.timestamp || Date.now()),
-        isOwn: senderName === userInfo.value?.username || senderName === userInfo.value?.nickname
-      }
-      messages.value.push(textMessage)
-      nextTick(() => {
-        scrollToBottom()
-      })
-      break
-      
-    case 'auth_success':
-      console.log('身份验证成功')
-      break
-      
-    case 'auth_failed':
-      message.error('身份验证失败')
-      router.push('/login')
-      break
-      
-    case 'error':
-      message.error('服务器错误:', data.message)
-      break
-      
-    default:
-      console.log('未知消息类型:', data)
+// 获取当前聊天信息
+const fetchCurrentChat = () => {
+  const storedChat = localStorage.getItem('currentChat')
+  if (storedChat) {
+    currentChat.value = JSON.parse(storedChat)
   }
 }
+      
+  //   default:
+  //     console.log('未知消息类型:', data)
+  // }
+// }
 
 // 获取用户信息并连接WebSocket
 onMounted(() => {
   const storedUserInfo = localStorage.getItem('userInfo')
   if (storedUserInfo) {
     userInfo.value = JSON.parse(storedUserInfo)
-    // 连接WebSocket
-    connectWebSocket()
+    // 获取当前聊天信息
+    fetchCurrentChat()
+    // 确保WebSocket连接
+    if (!wsStore.isConnected) {
+      wsStore.connect()
+    }
   } else {
     // 如果没有用户信息，跳转到登录页
     router.push('/login')
   }
 })
 
-// 组件卸载时关闭WebSocket连接
+// 组件卸载时不关闭WebSocket连接，由store管理
 onUnmounted(() => {
-  if (ws.value) {
-    ws.value.close()
-  }
+  // WebSocket连接由store管理，不在这里关闭
 })
 
 // 发送消息
@@ -226,20 +155,17 @@ const sendMessage = async () => {
   sending.value = true
   
   try {
-    // 通过WebSocket发送消息
+    // 通过WebSocket store发送消息
     const messageData = {
-      type: 'message',
-      data: {
-        text: newMessage.value.trim(),
-        sender: {
-          id: userInfo.value?.id,
-          username: userInfo.value?.username || userInfo.value?.nickname || '我'
-        },
-        timestamp: Date.now()
-      }
+      text: newMessage.value.trim(),
+      sender: {
+        id: userInfo.value?.id,
+        username: userInfo.value?.username || userInfo.value?.nickname || '我'
+      },
+      timestamp: Date.now()
     }
     
-    ws.value.send(JSON.stringify(messageData))
+    wsStore.sendMessage(messageData)
     
     // 清空输入框
     newMessage.value = ''
@@ -254,7 +180,7 @@ const sendMessage = async () => {
     sending.value = false
     
     // 显示错误提示
-    alert('发送消息失败，请检查网络连接')
+    message.error('发送消息失败，请检查网络连接')
   }
 }
 
@@ -389,6 +315,29 @@ onMounted(() => {
   50% {
     opacity: 0.5;
   }
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.profile-btn {
+  padding: 8px 16px;
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.profile-btn:hover {
+  background-color: #3a80d2;
 }
 
 .logout-btn {
@@ -706,6 +655,11 @@ onMounted(() => {
     font-size: 14px;
   }
   
+  .header-actions {
+    gap: 8px;
+  }
+  
+  .profile-btn,
   .logout-btn {
     padding: 6px 12px;
     font-size: 12px;

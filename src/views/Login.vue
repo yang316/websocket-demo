@@ -79,8 +79,8 @@ const handleLogin = async () => {
       localStorage.setItem('token', response.data.data.token)
       localStorage.setItem('userInfo', JSON.stringify(response.data.data.user))
       
-      // 跳转到聊天室页面
-      router.push('/chatroom')
+      // 跳转到好友列表页面
+      router.push('/friendlist')
     }
   } catch (error) {
     console.error('登录失败:', error)

@@ -18,9 +18,19 @@ const router = createRouter({
       component: () => import('../views/Register.vue'),
     },
     {
+      path: '/friendlist',
+      name: 'friendlist',
+      component: () => import('../views/FriendList.vue'),
+    },
+    {
       path: '/chatroom',
       name: 'chatroom',
       component: () => import('../views/ChatRoom.vue'),
+    },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: () => import('../views/Profile.vue'),
     },
     // {
     //   path: '/about',
